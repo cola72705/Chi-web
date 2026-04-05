@@ -10,7 +10,7 @@ import {
   Trophy,
   List
 } from 'lucide-react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, deleteField } from 'firebase/firestore';
 import { db } from './firebase';
 
 // --- Types ---
@@ -20,11 +20,29 @@ type HistoryLog = Record<string, Record<number, number>>;
 type ModalConfig = { show: boolean; type: string; data: any };
 
 // --- 音效生成器 (Web Audio API) ---
+let globalAudioCtx: AudioContext | null = null;
+
+const initAudio = () => {
+  if (!globalAudioCtx) {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioContextClass) {
+      globalAudioCtx = new AudioContextClass();
+    }
+  }
+  if (globalAudioCtx && globalAudioCtx.state === 'suspended') {
+    globalAudioCtx.resume();
+  }
+};
+
 const playHextechSound = () => {
   try {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContext) return;
-    const ctx = new AudioContext();
+    if (!globalAudioCtx) initAudio();
+    const ctx = globalAudioCtx;
+    if (!ctx) return;
+    
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
     
     const playNote = (freq: number, startTime: number, duration: number, type: OscillatorType, vol: number) => {
       const osc = ctx.createOscillator();
@@ -212,18 +230,12 @@ export default function App() {
     const currentCount = currentLog[exerciseId] || 0;
     const newCount = currentCount + delta;
     
-    const newLog = { ...currentLog };
-    if (newCount <= 0) {
-      delete newLog[exerciseId];
-    } else {
-      newLog[exerciseId] = newCount;
-    }
-    
-    // 寫入 Firebase
+    // 寫入 Firebase (使用 deleteField 來真正刪除欄位)
     await setDoc(doc(db, 'fitness_app', 'shared_data'), {
       historyLog: {
-        ...historyLog,
-        [fullDateKey]: newLog
+        [fullDateKey]: {
+          [exerciseId]: newCount <= 0 ? deleteField() : newCount
+        }
       }
     }, { merge: true });
   };
@@ -267,6 +279,7 @@ export default function App() {
   }, [isActive, timeLeft]);
 
   const startTimer = (seconds: number) => {
+    initAudio(); // 解鎖音效
     setTimeLeft(seconds);
     setTimerTotal(seconds);
     setIsActive(true);
@@ -462,7 +475,7 @@ export default function App() {
                           <button onClick={() => updateTodayLog(ex.id, -1)} className="w-8 h-8 bg-[#1e2328] text-[#a09b8c] flex items-center justify-center btn-press hover:bg-[#e43737]/20 hover:text-[#e43737] border border-transparent hover:border-[#e43737]/50 transition-all">
                             <Minus className="w-4 h-4" />
                           </button>
-                          <span className="text-xl font-serif font-bold text-[#c8aa6e] w-8 text-center hextech-gold-glow">{count}</span>
+                          <span className="text-2xl font-mono italic font-black text-[#0ac8b9] w-8 text-center drop-shadow-[0_0_8px_rgba(10,200,185,0.8)]">{count as number}</span>
                         </div>
                       </div>
                     );
